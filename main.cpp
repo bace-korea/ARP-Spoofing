@@ -163,8 +163,9 @@ int main(int argc, char* argv[]) {
                 //ff:ff:ff:ff:ff:ff -> 6바이트를 arp.eth.dst에 복사
             memcpy((char*)arp2.eth.dst, "\xff\xff\xff\xff\xff\xff", 6);
             for(int i=0; i<6; i++){
-                arp.eth.src[i] = send_mac[i];
-                arp2.eth.src[i] = send_mac[i];
+                arp.eth.src[i] = src_mac[i];
+                arp2.eth.src[i] = src_mac[i];
+
             }    //내 mac 주소를 출력 (mac은 6자리니까 for문으로 6번 돌림)
             arp.eth.type = (u_int16_t)ntohs(0x0806);
                 //0806->ARP    network byte 순서를 to host byte 순서로 바꾸어준다.
@@ -193,8 +194,8 @@ int main(int argc, char* argv[]) {
             arp2.oper = (u_int16_t)ntohs(0x0001);
                 //Request = 1, Reply = 2
             for(int i=0; i<6; i++){
-                arp.sender_mac[i] = send_mac[i];
-                arp2.sender_mac[i] = send_mac[i];
+                arp.sender_mac[i] = src_mac[i];
+                arp2.sender_mac[i] = src_mac[i];
             }    //나의 mac 주소를 sender mac에 집어넣음
             for(int i=0; i<4; i++){
                 arp.sender_ip[i] = send_ip[i];
@@ -230,7 +231,7 @@ int main(int argc, char* argv[]) {
             pcap_sendpacket(handle,(u_char*)&arp, sizeof(arp));
                  //eth와 arp 구조체를 합한 길이만큼의 패킷을 보내는데 OPCode가 1이므로 Request인 패킷 보냄
             printf("========================================\n");
-            printf("SEND\n");
+            printf("SEND222222222222222222\n");
             printf("ARP REQUEST-----------------------------\n");
             printf("Ethernet Dest \t: %02X-%02X-%02X-%02X-%02X-%02X\n", arp2.eth.dst[0],arp2.eth.dst[1],arp2.eth.dst[2],arp2.eth.dst[3],arp2.eth.dst[4],arp2.eth.dst[5]);
             printf("Ethernet Source : %02X-%02X-%02X-%02X-%02X-%02X\n", arp2.eth.src[0],arp2.eth.src[1],arp2.eth.src[2],arp2.eth.src[3],arp2.eth.src[4],arp2.eth.src[5]);
@@ -247,10 +248,10 @@ int main(int argc, char* argv[]) {
             printf("Target IP \t: %u.%u.%u.%u\n", arp2.target_ip[0],arp2.target_ip[1],arp2.target_ip[2],arp2.target_ip[3]);
             printf("========================================\n\n");
             pcap_sendpacket(handle,(u_char*)&arp2, sizeof(arp2));
-
+//-----------------------------------
             for(int i=0; i<6; i++){
-                rep.eth.dst[i] = tar_mac[i];
-                rep2.eth.dst[i] = tar_mac[i];
+                rep.eth.dst[i] = src_mac[i];
+                rep2.eth.dst[i] = src_mac[i];
             }    //tar_mac을 arp.eth.dst에 넣음
             for(int i=0; i<6; i++){
                 rep.eth.src[i] = send_mac[i];
@@ -287,9 +288,9 @@ int main(int argc, char* argv[]) {
                 rep.sender_ip[i] = send_ip[i];
                 rep2.sender_ip[i] = send2_ip[i];
             }    //보내고 싶은 ip를 arp.sender_ip에 넣음
-            memcpy((char*)rep.target_mac, tar_mac,6);
+            memcpy((char*)rep.target_mac, src_mac,6);
                 //tar_mac 6바이트를 arp.target_mac에 저장
-            memcpy((char*)rep2.target_mac, tar_mac,6);
+            memcpy((char*)rep2.target_mac, src_mac,6);
             for(int i=0; i<4; i++){
                 rep.target_ip[i] = tar_ip[i];
                 rep2.target_ip[i] = tar2_ip[i];
@@ -312,7 +313,7 @@ int main(int argc, char* argv[]) {
             printf("Target IP \t: %u.%u.%u.%u\n", rep.target_ip[0],rep.target_ip[1],rep.target_ip[2],rep.target_ip[3]);
             printf("========================================\n");
 
-            printf("RECEIVE\n");
+            printf("RECEIVE222222222222\n");
             printf("ARP REPLY-------------------------------\n");
             printf("Ethernet Dest \t: %02X-%02X-%02X-%02X-%02X-%02X\n", rep2.eth.dst[0],rep2.eth.dst[1],rep2.eth.dst[2],rep2.eth.dst[3],rep2.eth.dst[4],rep2.eth.dst[5]);
             printf("Ethernet Source : %02X-%02X-%02X-%02X-%02X-%02X\n", rep2.eth.src[0],rep2.eth.src[1],rep2.eth.src[2],rep2.eth.src[3],rep2.eth.src[4],rep2.eth.src[5]);
