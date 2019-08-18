@@ -47,7 +47,7 @@ struct packet
 };
 struct packet2
 {
-    struct ethernet_header eth;    //arp 구조체와 한번에 이어서 쓰기 위하여 ethernet 구조체를 가져옴
+    struct arp_header arp;
     struct ip_header ip;
 };
 
@@ -173,7 +173,7 @@ void reply(pcap_t *handle, u_int8_t *smac, u_int8_t *tmac, u_int8_t *sip, u_int8
     printf("Protocol Type \t: IPv4 (0x%04X)\n", (arp.proc_type<<8 & 0xFF00)|(arp.proc_type>>8 & 0x00FF));
     printf("Hardware Length : %X\n", arp.hard_len);
     printf("Protocol Length : %X\n", arp.proc_len);
-    printf("Opcode \t\t: Request(%X)\n", arp.oper>>8);
+    printf("Opcode \t\t: Reply(%X)\n", arp.oper>>8);
     printf("Sender MAC \t: %02X-%02X-%02X-%02X-%02X-%02X\n", arp.sender_mac[0],arp.sender_mac[1],arp.sender_mac[2],arp.sender_mac[3],arp.sender_mac[4],arp.sender_mac[5]);
     printf("Sender IP \t: %u.%u.%u.%u\n", arp.sender_ip[0],arp.sender_ip[1],arp.sender_ip[2],arp.sender_ip[3]);
     printf("Target MAC \t: %02X-%02X-%02X-%02X-%02X-%02X\n", arp.target_mac[0],arp.target_mac[1],arp.target_mac[2],arp.target_mac[3],arp.target_mac[4],arp.target_mac[5]);
@@ -203,7 +203,7 @@ bool chk(const u_char* packet, session sess){
 
     memcpy(&arp.eth, packet, 14);
     memcpy(&ip, packet+14, 20);
-    type = (arp.proc_type<<8 & 0xFF00)|(arp.proc_type>>8 & 0x00FF);
+    type = (arp.eth.type<<8 & 0xFF00)|(arp.eth.type>>8 & 0x00FF);
     if(type == 0x0800) {
     if(!memcmp(arp.eth.src, sess.sender_mac, 6) && !memcmp(arp.eth.dst, sess.target_mac, 6)) return true;
     }
@@ -212,8 +212,8 @@ bool chk(const u_char* packet, session sess){
 
 void relay(const u_char *pack, u_int8_t *mac, session sess){
     struct packet2 *packet = (packet2*)pack;
-    memcpy(packet->eth.src, mac, 6);
-    memcpy(packet->eth.dst, sess.target_mac, 6);
+    memcpy(packet->arp.eth.src, mac, 6);
+    memcpy(packet->arp.eth.dst, sess.target_mac, 6);
 }
 
 
@@ -272,7 +272,8 @@ int main(int argc, char* argv[]) {
         if (res == -1 || res == -2) break;
         for (int i=0; i<sess_num; i++){
             if(chk_arp(packet, sess[i].sender_mac)){
-                reply(handle, src_mac, sess[i].sender_mac, sess[i].sender_ip, sess[i].target_ip);                continue;
+                reply(handle, src_mac, sess[i].sender_mac, sess[i].sender_ip, sess[i].target_ip);
+                continue;
             }
         }
         for (int i=0; i<sess_num; i++){
