@@ -206,10 +206,12 @@ bool chk(const u_char* packet, session sess){
     return false;
 }
 
-void relay(const u_char *pack, u_int8_t *mymac, session sess){
-    struct packet2 *packet = (packet2*)pack;
-    memcpy(packet->arp.eth.src, mymac, 6);
-    memcpy(packet->arp.eth.dst, sess.target_mac, 6);
+void relay(pcap_t *handle, u_int8_t *smac, u_int8_t *tmac){
+    struct arp_header arp;
+
+    memcpy(arp.eth.src, smac, 6);
+    memcpy(arp.eth.dst, tmac, 6);
+    pcap_sendpacket(handle,(u_char*)&arp, sizeof(arp));
 }
 
 
@@ -273,7 +275,7 @@ int main(int argc, char* argv[]) {
         }
         for (int i=0; i<sess_num; i++){
             if(chk(packet, sess[i])){
-                relay(packet, src_mac, sess[i]);
+                relay(handle, src_mac, sess[i].sender_mac);
                 pcap_sendpacket(handle, packet, header->caplen);
             }
         }
